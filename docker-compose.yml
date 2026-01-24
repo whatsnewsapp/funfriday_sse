@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  db:
+    image: mongo:7
+    container_name: funfriday_sse_db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: quizuser
+      MONGO_INITDB_ROOT_PASSWORD: quizpassword
+      MONGO_INITDB_DATABASE: quizdb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./database/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+      - ./database/questions.json:/tmp/questions.json:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: funfriday_sse_backend
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      MONGO_HOST: db
+      MONGO_PORT: 27017
+      MONGO_DB: quizdb
+      MONGO_USER: quizuser
+      MONGO_PASSWORD: quizpassword
+      CORS_ORIGIN: http://localhost:5174
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/src:/app/src
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: funfriday_sse_frontend
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./frontend/src:/app/src
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: funfriday_sse_mongo_express
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: quizuser
+      ME_CONFIG_MONGODB_ADMINPASSWORD: quizpassword
+      ME_CONFIG_MONGODB_URL: mongodb://quizuser:quizpassword@db:27017/
+      ME_CONFIG_BASICAUTH: "false"
+    ports:
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
