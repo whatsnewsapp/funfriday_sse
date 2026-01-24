@@ -51,6 +51,15 @@ A real-time multiplayer quiz application built with TypeScript, featuring Server
 - **Frontend**: http://localhost:5174
 - **Backend API**: http://localhost:3000
 - **MongoDB**: localhost:27017
+- **Mongo Express**: http://localhost:8081
+
+### Mongo Express (Database Viewer)
+
+Mongo Express is a web-based MongoDB admin interface included in the Docker Compose setup. Use it to browse collections, view/edit documents, and run queries.
+
+- **URL**: http://localhost:8081
+- **No authentication required** (disabled for local development)
+- Navigate to `quizdb` → `questions` to view the quiz questions
 
 ## Quick Start
 
@@ -227,6 +236,40 @@ data: {"event":"new_question","data":{"round":1,"total_rounds":5,"question":"Wha
 ```
 
 ## Development
+
+### Hot Reloading with Docker
+
+The source code directories are mounted as volumes in the Docker containers, enabling hot reloading during development:
+
+```yaml
+# From docker-compose.yml
+backend:
+  volumes:
+    - ./backend/src:/app/src      # Backend source mounted
+
+frontend:
+  volumes:
+    - ./frontend/src:/app/src     # Frontend source mounted
+```
+
+- **Backend**: Uses `tsx watch` - changes to files in `backend/src/` automatically restart the server
+- **Frontend**: Uses Vite's HMR - changes to files in `frontend/src/` instantly reflect in the browser
+
+**Note**: Changes to `package.json`, `Dockerfile`, or `docker-compose.yml` require a container restart:
+```bash
+docker compose down && docker compose up --build
+```
+
+### IDE Setup (TypeScript Support)
+
+The `node_modules` directories exist only inside the Docker containers. For your IDE to provide TypeScript types, autocomplete, and error checking, install dependencies locally:
+
+```bash
+cd backend && npm install
+cd ../frontend && npm install
+```
+
+This creates local `node_modules` folders that your IDE uses for IntelliSense. The application still runs using the container's dependencies.
 
 ### Running Without Docker
 
