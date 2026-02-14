@@ -138,15 +138,15 @@ Web-based multiplayer quiz platform with real-time communication
 - **REQ-GP-020**: Final scores shall be displayed at game conclusion
 
 #### 3.4.4 Real-Time Events
-- **REQ-GP-021**: System shall use bidirectional real-time communication (e.g., WebSockets)
-- **REQ-GP-022**: System shall broadcast the following events to all party participants:
+- **REQ-GP-021**: System shall use Server-Sent Events (SSE) for server-to-client real-time communication
+- **REQ-GP-022**: System shall broadcast the following events to all party participants via SSE:
   - **new_question**: New question data with choices and timer info
   - **question_timeout**: Current question time has expired
   - **game_over**: Quiz completed, final scores available
   - **player_left**: A participant has disconnected
-- **REQ-GP-023**: Clients shall send the following events to server:
-  - **answer**: User's selected answer for current question
-  - **start_game**: Host initiates quiz start (creator only)
+- **REQ-GP-023**: Clients shall send the following actions to server via HTTP POST:
+  - **answer**: User's selected answer for current question (POST /api/party/:partyId/answer)
+  - **start_game**: Host initiates quiz start (POST /api/party/:partyId/start, creator only)
 - **REQ-GP-024**: Real-time events shall be delivered within 1 second of occurrence
 - **REQ-GP-025**: System shall handle client disconnections gracefully
 
@@ -217,7 +217,7 @@ Web-based multiplayer quiz platform with real-time communication
   - Invalid form inputs
   - Party not found
   - Cannot join party (already started, etc.)
-  - WebSocket disconnections
+  - SSE connection failures
 - **REQ-UI-018**: Error messages shall be dismissible
 - **REQ-UI-019**: Critical errors shall prevent further interaction until resolved
 
@@ -233,7 +233,7 @@ Web-based multiplayer quiz platform with real-time communication
 - **REQ-NFR-005**: Party list refresh shall be < 1 second
 
 ### 4.2 Reliability
-- **REQ-NFR-006**: System shall handle WebSocket disconnections with automatic reconnection attempts
+- **REQ-NFR-006**: System shall handle SSE disconnections with automatic reconnection attempts (native EventSource behavior)
 - **REQ-NFR-007**: System shall preserve user session across page refreshes
 - **REQ-NFR-008**: System shall validate all user inputs on both client and server
 - **REQ-NFR-009**: System shall gracefully handle concurrent answer submissions
@@ -245,7 +245,7 @@ Web-based multiplayer quiz platform with real-time communication
 
 ### 4.4 Security
 - **REQ-NFR-013**: API shall validate user identity on all protected endpoints
-- **REQ-NFR-014**: WebSocket connections shall validate user ID and party ID
+- **REQ-NFR-014**: SSE connections shall validate user ID and party ID via query parameters
 - **REQ-NFR-015**: System shall prevent users from submitting answers for other users
 - **REQ-NFR-016**: System shall prevent unauthorized users from starting games
 - **REQ-NFR-017**: System shall sanitize user inputs to prevent injection attacks
@@ -269,16 +269,14 @@ Web-based multiplayer quiz platform with real-time communication
 ### 5.1 High-Level Architecture
 ```
 ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
-│   Frontend   │◄───────►│   Backend    │◄───────►│   Database   │
-│  (Web App)   │  HTTP   │  (REST API)  │  SQL    │ (Relational) │
-│              │  WS     │              │         │              │
-└──────────────┘         └──────────────┘         └──────────────┘
-                                │
-                                │
-                         ┌──────▼──────┐
-                         │   Cache     │
-                         │ (In-Memory) │
-                         └─────────────┘
+│   Frontend   │─────────►│   Backend    │◄───────►│   Database   │
+│  (Web App)   │  HTTP   │  (REST API)  │  NoSQL  │   (MongoDB)  │
+│              │  POST   │   + SSE      │         │  Questions   │
+└──────┬───────┘         └──────┬───────┘         └──────────────┘
+       │                         │
+       │ SSE (EventSource)       │ In-Memory Maps
+       └─────────────────────────┤ (Parties/Users)
+                                 ▼
 ```
 
 ### 5.2 Component Responsibilities
@@ -287,23 +285,23 @@ Web-based multiplayer quiz platform with real-time communication
 - User interface rendering
 - Client-side routing
 - Form validation
-- WebSocket connection management
+- SSE connection management (EventSource API)
 - Local state management (current question, selected answer, timer)
 - Session persistence (user ID in browser storage)
 
 #### 5.2.2 Backend (Server)
-- REST API for CRUD operations
-- WebSocket server for real-time communication
+- REST API for CRUD operations (HTTP POST)
+- SSE server for server-to-client real-time communication
 - Business logic execution
 - Data validation
 - Party state management
 - Score calculation
 - Question pool management
 
-#### 5.2.3 Database (Persistent Storage)
-- Question data storage
+#### 5.2.3 Database (Persistent Storage - MongoDB)
+- Question data storage (NoSQL documents)
 - Category management
-- Query optimization with indexing
+- Query optimization with indexing on category field
 
 #### 5.2.4 Cache (In-Memory Store)
 - Active party state (current question, round, participants)
@@ -317,20 +315,22 @@ Web-based multiplayer quiz platform with real-time communication
 
 ### 6.1 Persistent Storage (Database)
 
-#### 6.1.1 Questions Table
-```
-questions
-├── id (unique identifier, primary key, auto-increment)
-├── question (text, not null)
-├── answer (text, not null) - correct answer
-├── choice1 (text, not null) - alternative answer 1
-├── choice2 (text, not null) - alternative answer 2
-├── choice3 (text, not null) - alternative answer 3
-└── category (text, not null, indexed)
+#### 6.1.1 Questions Collection (MongoDB)
+```json
+{
+  "_id": "ObjectId (auto-generated)",
+  "question": "string (required)",
+  "answer": "string (required) - correct answer",
+  "choice1": "string (required) - alternative answer 1",
+  "choice2": "string (required) - alternative answer 2",
+  "choice3": "string (required) - alternative answer 3",
+  "category": "string (required, indexed)"
+}
 
 Constraints:
 - answer must match one of [choice1, choice2, choice3]
 - All choices must be distinct
+- Category field is indexed for efficient queries
 ```
 
 ### 6.2 In-Memory Cache Structures
@@ -472,63 +472,114 @@ Response: 200 OK
 
 **Get Categories**
 ```
-GET /api/categories
+GET /api/party/categories/list
 Response: 200 OK
 {
   "categories": ["array of category name strings"]
 }
 ```
 
-### 7.2 WebSocket Protocol
+#### 7.1.4 Game Actions
+
+**Start Game**
+```
+POST /api/party/{party_id}/start
+Request Body:
+{
+  "user_id": "string (UUID)"
+}
+Response: 200 OK
+{
+  "message": "Game started successfully"
+}
+Errors:
+- 403: User is not the party creator
+- 404: Party not found
+- 400: Party not in waiting_for_players state
+```
+
+**Submit Answer**
+```
+POST /api/party/{party_id}/answer
+Request Body:
+{
+  "user_id": "string (UUID)",
+  "answer": "string (selected answer text)"
+}
+Response: 200 OK
+{
+  "success": true,
+  "correct": boolean,
+  "message": "string"
+}
+Errors:
+- 404: Party or user not found
+- 400: No active question or timeout expired
+```
+
+### 7.2 Server-Sent Events (SSE) Protocol
 
 #### 7.2.1 Connection
 ```
-WS /ws/{party_id}?user_id={user_id}
+GET /api/party/{party_id}/events?user_id={user_id}
 
 Connection established when:
 - party_id exists
 - user_id exists and is participant of party
 
 Connection rejected when:
-- Invalid party_id or user_id
-- User not a participant
+- Invalid party_id or user_id (400/404)
+- User not a participant (403)
+
+Headers sent by server:
+- Content-Type: text/event-stream
+- Cache-Control: no-cache
+- Connection: keep-alive
+
+Server sends heartbeat comments every 30 seconds to keep connection alive.
 ```
 
-#### 7.2.2 Client → Server Messages
+#### 7.2.2 Client → Server Actions
 
-**Submit Answer**
-```json
-{
-  "event": "answer",
-  "answer": "string (selected answer text)"
-}
+Client sends actions via HTTP POST endpoints (see section 7.1.4):
+- **Submit Answer**: POST /api/party/:partyId/answer
+- **Start Game**: POST /api/party/:partyId/start (creator only)
+
+Note: SSE is unidirectional (server → client only). Clients use standard HTTP POST for server communication.
+
+#### 7.2.3 Server → Client Events (via SSE)
+
+**Connection Established**
 ```
+SSE Format: data: <JSON>
 
-**Start Game** (Creator only)
-```json
-{
-  "event": "start_game"
-}
+data: {"event":"connected","data":{"party_id":"string"}}
 ```
-
-#### 7.2.3 Server → Client Messages
 
 **New Question**
-```json
+```
+SSE Format: data: <JSON>
+
+data: {"event":"new_question","data":{"round":1,"total_rounds":5,"question":"What is...?","choices":["A","B","C","D"],"timeout":30}}
+
+Event Data:
 {
   "event": "new_question",
   "data": {
     "round": "integer (1-indexed)",
     "total_rounds": "integer",
     "question": "string",
-    "choices": ["array of 4 strings"],
+    "choices": ["array of 4 strings (randomized)"],
     "timeout": "integer (seconds)"
   }
 }
 ```
 
 **Question Timeout**
-```json
+```
+SSE Format: data: <JSON>
+
+Event Data:
 {
   "event": "question_timeout",
   "data": {
@@ -538,7 +589,9 @@ Connection rejected when:
         "user_id": "string",
         "user_name": "string",
         "score": "integer",
-        "is_correct": "boolean"
+        "category_scores": {
+          "<category>": "integer"
+        }
       }
     ]
   }
@@ -546,7 +599,10 @@ Connection rejected when:
 ```
 
 **Game Over**
-```json
+```
+SSE Format: data: <JSON>
+
+Event Data:
 {
   "event": "game_over",
   "data": {
@@ -554,7 +610,7 @@ Connection rejected when:
       {
         "user_id": "string",
         "user_name": "string",
-        "total_score": "integer",
+        "score": "integer",
         "category_scores": {
           "<category>": "integer"
         }
@@ -565,7 +621,10 @@ Connection rejected when:
 ```
 
 **Player Left**
-```json
+```
+SSE Format: data: <JSON>
+
+Event Data:
 {
   "event": "player_left",
   "data": {
@@ -618,18 +677,18 @@ Connection rejected when:
 8. User waits for creator to start game
 
 ### 8.4 Play Quiz Round
-1. User receives "new_question" event via WebSocket
+1. User receives "new_question" event via SSE
 2. System displays question, choices, and starts countdown
 3. User reviews question and choices
 4. User selects one answer choice
 5. User clicks "Submit Answer" button
-6. System sends answer to server via WebSocket
+6. System sends answer to server via HTTP POST (/api/party/:partyId/answer)
 7. System displays user's selected answer (locked)
 8. User waits for other players or timeout
-9. When timeout reached, system broadcasts "question_timeout"
+9. When timeout reached, system broadcasts "question_timeout" via SSE
 10. System displays correct answer and updated scores
-11. System pauses briefly
-12. System broadcasts next question (repeat from step 1)
+11. System pauses briefly (3 seconds)
+12. System broadcasts next question via SSE (repeat from step 1)
 
 ### 8.5 Complete Quiz and View Results
 1. After final round, system broadcasts "game_over" event
@@ -647,10 +706,10 @@ Connection rejected when:
 ### 9.1 Connection Issues
 - **Scenario**: User loses internet connection during quiz
 - **Behavior**:
-  - System detects WebSocket disconnection
-  - Server broadcasts "player_left" to other participants
+  - System detects SSE connection closure
+  - Server broadcasts "player_left" to other participants via SSE
   - Quiz continues for remaining players
-  - Disconnected user cannot rejoin mid-game
+  - Browser automatically attempts to reconnect (native EventSource behavior)
   - User scores are preserved until disconnection point
 
 ### 9.2 Creator Abandonment
@@ -693,9 +752,9 @@ Connection rejected when:
 - **Scenario**: User refreshes browser during active quiz
 - **Behavior**:
   - User ID restored from local storage
-  - WebSocket reconnection attempted
+  - SSE reconnection established automatically
   - User rejoins party if still active
-  - Current question state may be lost (show waiting screen)
+  - Current question state may be lost (user waits for next question)
 
 ---
 
@@ -747,17 +806,18 @@ The following must be functional for product acceptance:
 
 ### 11.2 Quality Benchmarks
 - Page load time < 2 seconds
-- WebSocket latency < 1 second
-- Support 10 concurrent parties with 10 users each
+- SSE event latency < 1 second
+- Support 10 concurrent parties with 10 users each (100 concurrent SSE connections)
 - Zero data loss during normal operation
 - Graceful error messages for common failures
+- Automatic SSE reconnection on connection loss
 
 ---
 
 ## 12. Technical Constraints and Assumptions
 
 ### 12.1 Assumptions
-1. All users have modern web browsers with WebSocket support
+1. All users have modern web browsers with EventSource API support (all modern browsers)
 2. Users have stable internet connections
 3. Users have sufficient screen size (minimum 768px width recommended)
 4. Question database is pre-populated with sufficient content
@@ -779,19 +839,18 @@ The following must be functional for product acceptance:
 ## 13. Deployment Requirements
 
 ### 13.1 Infrastructure Components
-1. Web server for frontend assets
-2. Application server for backend API
-3. WebSocket server (may be same as application server)
-4. Relational database server
-5. In-memory cache server
+1. Web server for frontend assets (Vite dev server or static hosting)
+2. Application server for backend API and SSE (Node.js + Express)
+3. MongoDB database server for questions
+4. In-memory storage (JavaScript Maps within application server)
 
 ### 13.2 Configuration Management
-- Database connection parameters
-- Cache connection parameters
-- CORS allowed origins
-- WebSocket connection limits
-- Session timeout values
+- Database connection parameters (MongoDB URI)
+- CORS allowed origins (frontend URL)
+- SSE connection limits and heartbeat intervals
+- Question timeout values
 - Environment-specific settings (dev/staging/prod)
+- Port configurations
 
 ### 13.3 Containerization (Optional)
 - Application should be containerizable
@@ -803,7 +862,7 @@ The following must be functional for product acceptance:
 - Application logs for debugging
 - Error tracking and alerting
 - Performance metrics (response times, connection counts)
-- WebSocket connection monitoring
+- SSE connection monitoring (active connections per party)
 
 ---
 
@@ -817,9 +876,9 @@ The following must be functional for product acceptance:
 
 ### 14.2 Integration Testing
 - REST API endpoints
-- Database queries
-- Cache operations
-- WebSocket message handling
+- Database queries (MongoDB)
+- In-memory storage operations
+- SSE event broadcasting
 
 ### 14.3 End-to-End Testing
 - Complete user registration flow
@@ -830,9 +889,9 @@ The following must be functional for product acceptance:
 
 ### 14.4 Performance Testing
 - Load testing with multiple concurrent parties
-- Stress testing WebSocket connections
-- Database query performance
-- Cache hit/miss ratios
+- Stress testing SSE connections (concurrent EventSource connections)
+- MongoDB query performance (category-based lookups)
+- In-memory storage performance
 
 ---
 
@@ -846,9 +905,9 @@ The following must be functional for product acceptance:
 - FAQ and troubleshooting
 
 ### 15.2 Developer Documentation
-- API endpoint specifications
-- WebSocket protocol documentation
-- Database schema
+- API endpoint specifications (REST and SSE)
+- SSE protocol documentation
+- Database schema (MongoDB collections)
 - Setup and installation instructions
 - Architecture overview
 - Code contribution guidelines
@@ -867,6 +926,7 @@ The following must be functional for product acceptance:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-01-13 | Analysis | Initial comprehensive requirements document |
+| 1.1 | 2026-02-14 | Claude Code | Updated to reflect SSE implementation (replaced WebSocket references) |
 
 ---
 
@@ -880,4 +940,5 @@ The following must be functional for product acceptance:
 - **Lobby**: Main dashboard view showing available parties
 - **Category**: Classification of questions by topic
 - **Score**: Points accumulated by answering correctly
-- **Real-time Communication**: Bidirectional messaging between client and server with minimal latency
+- **SSE (Server-Sent Events)**: HTTP-based protocol for server-to-client real-time streaming
+- **EventSource**: Browser API for consuming SSE streams
