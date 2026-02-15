@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { createParty, loadPartyFromRedis, getAllParties, addParticipant } from '../services/party.service.js';
+import { createParty, loadPartyFromCache, getAllParties, addParticipant } from '../services/party.service.js';
 import { getRandomQuestions, getCategories } from '../services/question.service.js';
-import { loadUserFromRedis, setUserParty, getAllUsers } from '../services/user.service.js';
+import { loadUserFromCache, setUserParty, getAllUsers } from '../services/user.service.js';
 import { broadcastToParty } from '../sse/event-broadcaster.js';
 
 const router = Router();
@@ -25,7 +25,7 @@ router.post('/init', async (req: Request, res: Response) => {
     }
 
     // Check if user exists
-    const user = await loadUserFromRedis(player_id);
+    const user = await loadUserFromCache(player_id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -65,7 +65,7 @@ router.get('/:partyId', async (req: Request, res: Response) => {
   try {
     const { partyId } = req.params;
 
-    const party = await loadPartyFromRedis(partyId);
+    const party = await loadPartyFromCache(partyId);
     if (!party) {
       return res.status(404).json({ error: 'Party not found' });
     }
@@ -101,7 +101,7 @@ router.post('/:partyId/join', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing user_id' });
     }
 
-    const party = await loadPartyFromRedis(partyId);
+    const party = await loadPartyFromCache(partyId);
     if (!party) {
       return res.status(404).json({ error: 'Party not found' });
     }
@@ -110,7 +110,7 @@ router.post('/:partyId/join', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Cannot join party - game already started' });
     }
 
-    const user = await loadUserFromRedis(user_id);
+    const user = await loadUserFromCache(user_id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }

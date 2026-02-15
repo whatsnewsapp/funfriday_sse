@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { startGame, submitAnswer } from '../services/game.service.js';
-import { loadPartyFromRedis } from '../services/party.service.js';
-import { loadUserFromRedis } from '../services/user.service.js';
+import { loadPartyFromCache } from '../services/party.service.js';
+import { loadUserFromCache } from '../services/user.service.js';
 
 const router = Router();
 
@@ -15,7 +15,7 @@ router.post('/:partyId/start', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing user_id' });
     }
 
-    const party = await loadPartyFromRedis(partyId);
+    const party = await loadPartyFromCache(partyId);
     if (!party) {
       return res.status(404).json({ error: 'Party not found' });
     }
@@ -52,7 +52,7 @@ router.post('/:partyId/answer', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing user_id or answer' });
     }
 
-    const party = await loadPartyFromRedis(partyId);
+    const party = await loadPartyFromCache(partyId);
     if (!party) {
       return res.status(404).json({ error: 'Party not found' });
     }
@@ -65,7 +65,7 @@ router.post('/:partyId/answer', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No active question' });
     }
 
-    const user = await loadUserFromRedis(user_id);
+    const user = await loadUserFromCache(user_id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }

@@ -126,6 +126,6 @@ export async function removeParticipant(partyId: string, userId: string): Promis
 }
 
 // Export aliases for backward compatibility with routes
-export const loadPartyFromRedis = loadPartyFromMemory;
-export const savePartyToRedis = savePartyToMemory;
-export const deletePartyFromRedis = deletePartyFromMemory;
+export const loadPartyFromCache = loadPartyFromMemory;
+export const savePartyToCache = savePartyToMemory;
+export const deletePartyFromCache = deletePartyFromMemory;

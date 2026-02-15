@@ -92,5 +92,5 @@ export async function setUserParty(userId: string, partyId: string): Promise<voi
 }
 
 // Export aliases for backward compatibility with routes
-export const loadUserFromRedis = loadUserFromMemory;
-export const saveUserToRedis = saveUserToMemory;
+export const loadUserFromCache = loadUserFromMemory;
+export const saveUserToCache = saveUserToMemory;

@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { addConnection, removeConnection } from '../sse/connection-manager.js';
 import { sendSSEMessage, broadcastToParty } from '../sse/event-broadcaster.js';
-import { loadPartyFromRedis, removeParticipant } from '../services/party.service.js';
-import { loadUserFromRedis } from '../services/user.service.js';
+import { loadPartyFromCache, removeParticipant } from '../services/party.service.js';
+import { loadUserFromCache as loadUserFromCache } from '../services/user.service.js';
 
 const router = Router();
 
@@ -16,13 +16,13 @@ router.get('/:partyId/events', async (req: Request, res: Response) => {
   }
 
   // Validate party exists
-  const party = await loadPartyFromRedis(partyId);
+  const party = await loadPartyFromCache(partyId);
   if (!party) {
     return res.status(404).json({ error: 'Party not found' });
   }
 
   // Validate user exists and is in party
-  const user = await loadUserFromRedis(user_id);
+  const user = await loadUserFromCache(user_id);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
