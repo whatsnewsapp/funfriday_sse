@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { createParty, loadPartyFromCache, getAllParties, addParticipant } from '../services/party.service.js';
-import { getRandomQuestions, getCategories } from '../services/question.service.js';
+import { getQuestionsByBank, getQuestionCountByBank } from '../services/question.service.js';
+import { getAvailableBanks, getBankById, markBankAsUsed } from '../services/bank.service.js';
 import { loadUserFromCache, setUserParty, getAllUsers } from '../services/user.service.js';
 import { broadcastToParty } from '../sse/event-broadcaster.js';
 
@@ -9,10 +10,10 @@ const router = Router();
 // POST /api/party/init
 router.post('/init', async (req: Request, res: Response) => {
   try {
-    const { player_id, category, rounds, timeout } = req.body;
+    const { player_id, bank_id, rounds, timeout } = req.body;
 
     // Validation
-    if (!player_id || !category || !rounds || !timeout) {
+    if (!player_id || !bank_id || !rounds || !timeout) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -30,11 +31,23 @@ router.post('/init', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Load questions
-    const questions = await getRandomQuestions(category, rounds);
+    // Look up the bank
+    const bank = await getBankById(bank_id);
+    if (!bank) {
+      return res.status(404).json({ error: 'Bank not found' });
+    }
+
+    // Load questions from the bank
+    const questions = await getQuestionsByBank(bank_id, rounds);
+
+    // Use bank title as the category display name
+    const category = bank.title;
 
     // Create party
     const partyId = await createParty(player_id, category, rounds, timeout, questions);
+
+    // Mark bank as used
+    await markBankAsUsed(bank_id);
 
     // Update user's current party
     await setUserParty(player_id, partyId);
@@ -56,6 +69,28 @@ router.get('/', async (req: Request, res: Response) => {
     res.json({ parties });
   } catch (error) {
     console.error('Error getting parties:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/party/banks/list — must be before /:partyId to avoid matching "banks" as a partyId
+router.get('/banks/list', async (req: Request, res: Response) => {
+  try {
+    const banks = await getAvailableBanks();
+
+    // Enrich each bank with its question count
+    const banksWithCounts = await Promise.all(
+      banks.map(async (bank) => ({
+        bankId: bank.bankId,
+        title: bank.title,
+        description: bank.description,
+        questionCount: await getQuestionCountByBank(bank.bankId),
+      }))
+    );
+
+    res.json({ banks: banksWithCounts });
+  } catch (error) {
+    console.error('Error getting banks:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -134,17 +169,6 @@ router.post('/:partyId/join', async (req: Request, res: Response) => {
     res.json({ message: 'Joined party successfully', game_id: party.game_id });
   } catch (error) {
     console.error('Error joining party:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// GET /api/categories
-router.get('/categories/list', async (req: Request, res: Response) => {
-  try {
-    const categories = await getCategories();
-    res.json({ categories });
-  } catch (error) {
-    console.error('Error getting categories:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

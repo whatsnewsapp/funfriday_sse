@@ -37,10 +37,10 @@ export const api = {
     apiRequest<{ user_id: string; user_name: string }>(`/user/${userId}`),
 
   // Party endpoints
-  createParty: (playerId: string, category: string, rounds: number, timeout: number) =>
+  createParty: (playerId: string, bankId: string, rounds: number, timeout: number) =>
     apiRequest<{ party_id: string }>('/party/init', {
       method: 'POST',
-      body: JSON.stringify({ player_id: playerId, category, rounds, timeout }),
+      body: JSON.stringify({ player_id: playerId, bank_id: bankId, rounds, timeout }),
     }),
 
   getParties: () =>
@@ -55,8 +55,8 @@ export const api = {
       body: JSON.stringify({ user_id: userId }),
     }),
 
-  getCategories: () =>
-    apiRequest<{ categories: string[] }>('/party/categories/list'),
+  getBanks: () =>
+    apiRequest<{ banks: import('../types/api.types').Bank[] }>('/party/banks/list'),
 
   // Game endpoints
   startGame: (partyId: string, userId: string) =>

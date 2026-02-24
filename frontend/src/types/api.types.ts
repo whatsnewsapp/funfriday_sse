@@ -35,6 +35,13 @@ export interface Score {
   is_correct?: boolean;
 }
 
+export interface Bank {
+  bankId: string;
+  title: string;
+  description: string;
+  questionCount: number;
+}
+
 export interface GameEvent {
   event: string;
   data?: any;

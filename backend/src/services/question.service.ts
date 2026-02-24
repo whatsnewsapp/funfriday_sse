@@ -51,6 +51,47 @@ export async function getCategories(): Promise<string[]> {
   }
 }
 
+export async function getQuestionsByBank(
+  bankId: string,
+  count: number
+): Promise<QuestionForGame[]> {
+  const db = getDatabase();
+  const questionsCollection = db.collection<Question>('questions');
+
+  try {
+    const questions = await questionsCollection
+      .aggregate<Question>([
+        { $match: { bankId } },
+        { $sample: { size: count } }
+      ])
+      .toArray();
+
+    if (questions.length < count) {
+      throw new Error(`Insufficient questions in bank '${bankId}'. Found ${questions.length}, need ${count}`);
+    }
+
+    return questions.map((q) => {
+      const choices = shuffleArray(q.choices);
+      return {
+        id: q.id,
+        question: q.question,
+        choices,
+        answer: q.answer,
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching questions by bank:', error);
+    throw error;
+  }
+}
+
+export async function getQuestionCountByBank(bankId: string): Promise<number> {
+  const db = getDatabase();
+  const questionsCollection = db.collection<Question>('questions');
+
+  return questionsCollection.countDocuments({ bankId });
+}
+
 // Fisher-Yates shuffle algorithm
 function shuffleArray<T>(array: T[]): T[] {
   const arr = [...array];

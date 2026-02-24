@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { Bank } from '../../types/api.types';
 import { useUser } from '../../hooks/useUser';
 import ErrorPanel from '../common/ErrorPanel';
 
 export default function GameCreationPage() {
-  const [categories, setCategories] = useState<string[]>([]);
-  const [category, setCategory] = useState('');
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [selectedBankId, setSelectedBankId] = useState('');
   const [rounds, setRounds] = useState(5);
   const [timeout, setTimeout] = useState(30);
   const [loading, setLoading] = useState(false);
@@ -15,26 +16,37 @@ export default function GameCreationPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadCategories();
+    loadBanks();
   }, []);
 
-  const loadCategories = async () => {
+  const loadBanks = async () => {
     try {
-      const response = await api.getCategories();
-      setCategories(response.categories);
-      if (response.categories.length > 0) {
-        setCategory(response.categories[0]);
+      const response = await api.getBanks();
+      setBanks(response.banks);
+      if (response.banks.length > 0) {
+        setSelectedBankId(response.banks[0].bankId);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load categories');
+      setError(err.message || 'Failed to load quiz banks');
+    }
+  };
+
+  const selectedBank = banks.find((b) => b.bankId === selectedBankId);
+  const maxRounds = selectedBank ? selectedBank.questionCount : 20;
+
+  const handleBankChange = (bankId: string) => {
+    setSelectedBankId(bankId);
+    const bank = banks.find((b) => b.bankId === bankId);
+    if (bank && rounds > bank.questionCount) {
+      setRounds(bank.questionCount);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!category) {
-      setError('Please select a category');
+    if (!selectedBankId) {
+      setError('Please select a quiz bank');
       return;
     }
 
@@ -42,7 +54,7 @@ export default function GameCreationPage() {
     setError(null);
 
     try {
-      const response = await api.createParty(user!.userId, category, rounds, timeout);
+      const response = await api.createParty(user!.userId, selectedBankId, rounds, timeout);
       navigate(`/quiz/${response.party_id}`);
     } catch (err: any) {
       setError(err.message || 'Failed to create party');
@@ -59,15 +71,20 @@ export default function GameCreationPage() {
 
       <form onSubmit={handleSubmit}>
         <label>
-          <strong>Category:</strong>
+          <strong>Quiz Bank:</strong>
         </label>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} disabled={loading}>
-          {categories.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat}
+        <select value={selectedBankId} onChange={(e) => handleBankChange(e.target.value)} disabled={loading}>
+          {banks.map((bank) => (
+            <option key={bank.bankId} value={bank.bankId}>
+              {bank.title} ({bank.questionCount} questions)
             </option>
           ))}
         </select>
+        {selectedBank && (
+          <p style={{ margin: '0.25rem 0 0.5rem', fontSize: '0.9rem', color: '#666' }}>
+            {selectedBank.description}
+          </p>
+        )}
 
         <label>
           <strong>Number of Rounds:</strong>
@@ -75,9 +92,9 @@ export default function GameCreationPage() {
         <input
           type="number"
           min="1"
-          max="20"
+          max={maxRounds}
           value={rounds}
-          onChange={(e) => setRounds(parseInt(e.target.value))}
+          onChange={(e) => setRounds(Math.min(parseInt(e.target.value) || 1, maxRounds))}
           disabled={loading}
         />
 

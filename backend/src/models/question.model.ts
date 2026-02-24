@@ -4,6 +4,7 @@ export interface Question {
   answer: string;
   choices: string[];
   category: string;
+  bankId?: string;
 }
 
 export interface QuestionForGame {
