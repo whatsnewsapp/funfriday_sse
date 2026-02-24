@@ -13,6 +13,7 @@ export interface Party {
   question_pool: QuestionForGame[];
   current_question?: QuestionForGame & { started_at: number };
   participants: string[];
+  answered_users?: string[];
 }
 
 export interface PartyInfo {

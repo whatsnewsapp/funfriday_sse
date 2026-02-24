@@ -3,6 +3,8 @@ import { loadUserFromCache, getAllUsers, updateUserScore } from './user.service.
 import { UserScore } from '../models/user.model.js';
 import { broadcastToParty } from '../sse/event-broadcaster.js';
 
+const activeTimeouts = new Map<string, NodeJS.Timeout>();
+
 export async function startGame(partyId: string): Promise<void> {
   await updatePartyState(partyId, 'in_progress');
   await startRound(partyId);
@@ -22,6 +24,9 @@ export async function startRound(partyId: string): Promise<void> {
     await updatePartyState(partyId, 'ended_successfully');
     return;
   }
+
+  // Clear answered users for the new round
+  party.answered_users = [];
 
   // Pop next question
   const question = party.question_pool.shift()!;
@@ -45,14 +50,18 @@ export async function startRound(partyId: string): Promise<void> {
   });
 
   // Schedule timeout
-  setTimeout(async () => {
+  const timeoutId = setTimeout(async () => {
+    activeTimeouts.delete(partyId);
     await handleQuestionTimeout(partyId, question.answer);
   }, party.timeout * 1000);
+
+  activeTimeouts.set(partyId, timeoutId);
 }
 
 async function handleQuestionTimeout(partyId: string, correctAnswer: string): Promise<void> {
   const party = await loadPartyFromCache(partyId);
   if (!party) return;
+  if (!party.current_question) return;
 
   const scores = await getPlayerScores(partyId);
 
@@ -90,6 +99,21 @@ export async function submitAnswer(
 
   if (isCorrect) {
     await updateUserScore(userId, party.category, 1);
+  }
+
+  // Track that this user has answered
+  if (!party.answered_users) party.answered_users = [];
+  party.answered_users.push(userId);
+  await savePartyToCache(partyId, party);
+
+  // If all participants have answered, end the round early
+  if (party.answered_users.length === party.participants.length) {
+    const timeoutId = activeTimeouts.get(partyId);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      activeTimeouts.delete(partyId);
+    }
+    await handleQuestionTimeout(partyId, party.current_question!.answer);
   }
 
   return { correct: isCorrect };
