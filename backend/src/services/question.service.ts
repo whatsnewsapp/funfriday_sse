@@ -23,7 +23,7 @@ export async function getRandomQuestions(
 
     // Transform questions and randomize choices
     return questions.map((q) => {
-      const choices = shuffleArray([q.answer, q.choice1, q.choice2, q.choice3]);
+      const choices = shuffleArray(q.choices);
       return {
         id: q.id,
         question: q.question,
